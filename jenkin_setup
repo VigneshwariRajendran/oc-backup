@@ -1,0 +1,32 @@
+######adding role for jenkins user #################
+ oc policy add-role-to-user admin system:serviceaccount:jenkins:jenkins -n jenkins-poc
+#############################################
+1. sudo dnf install java-17-openjdk-devel
+
+2. sudo yum update -y
+
+3. sudo curl -o /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat/jenkins.repo
+
+4. sudo rpm --import https://pkg.jenkins.io/keys/jenkins.io.key
+
+5. sudo yum install -y jenkins
+
+6. sudo systemctl start jenkins
+
+#####to enable jenkins to start on boot#####
+sudo systemctl enable jenkins
+
+####can find initial password#######
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+
+
+
+
+
+
+
+
+
+
+
+
