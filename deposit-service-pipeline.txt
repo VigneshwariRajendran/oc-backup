@@ -1,0 +1,115 @@
+pipeline {
+    agent any
+    environment {
+        WORKING_DIR = '/opt/springboot_services/depositservice'
+        OPENSHIFT_REGISTRY = 'default-route-openshift-image-registry.apps.mytellcluster.9stx.p1.openshiftapps.com'
+        OPENSHIFT_SERVER = 'https://api.mytellcluster.9stx.p1.openshiftapps.com:6443'
+        NAMESPACE = 'jenkins-poc'
+        OPENSHIFT_TOKEN = credentials('openshift-token')
+        APP_NAME = 'depositservice'
+        IMAGE_NAME = "${OPENSHIFT_REGISTRY}/${NAMESPACE}/${APP_NAME}:latest"
+    }
+    stages {
+        stage('Login to OpenShift') {
+            steps {
+                script {
+                    sh "oc login ${OPENSHIFT_SERVER} --token=${OPENSHIFT_TOKEN}"
+                    
+                }
+            }
+        }
+
+        stage('Verify Directory') {
+            steps {
+                echo "Verifying the working directory: ${WORKING_DIR}"
+                dir("${WORKING_DIR.trim()}") {
+                    sh 'ls -l'  // List files in the directory to confirm Dockerfile is present
+                }
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                echo "Switching to working directory: ${WORKING_DIR}"
+                dir("${WORKING_DIR.trim()}") {
+                    echo "Building container image..."
+                    sh "podman build --cgroup-manager=cgroupfs --no-cache -t ${APP_NAME}:latest ."
+                }
+            }
+        }
+
+        stage('Tag Image') {
+            steps {
+                echo "Tagging the image for OpenShift registry..."
+                dir("${WORKING_DIR.trim()}") {
+                    sh "podman tag ${APP_NAME}:latest ${IMAGE_NAME}"
+                }
+            }
+        }
+        stage('Login to OpenShift Registry') {
+            steps {
+                script {
+                    echo "Logging into OpenShift registry..."
+                    // Authenticate with OpenShift registry using the OC token
+                    sh "oc whoami -t | podman login --username=unused --password-stdin ${OPENSHIFT_REGISTRY}"
+                }
+            }
+        }
+        stage('Push Image') {
+            steps {
+                echo "Pushing the image to OpenShift registry..."
+                dir("${WORKING_DIR.trim()}") {
+                    sh "podman push ${IMAGE_NAME}"
+                }
+            }
+        }
+
+        stage('Deploy to OpenShift') {
+            steps {
+                echo "Deploying the application in OpenShift..."
+                sh "oc new-app ${IMAGE_NAME} --name=${APP_NAME}"
+                sh "oc expose service/${APP_NAME}"
+            }
+        }
+    }
+    post {
+        success {
+            echo 'Deployment successful!'
+        }
+        failure {
+            echo 'Deployment failed!'
+        }
+    }
+}
+===============================================
+Dockerfile
+==================================================
+# Use an official Java runtime as a parent image
+FROM openjdk:17-jdk-slim
+
+# Create a new user to run the application
+RUN useradd -ms /bin/bash springboot
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Create necessary directories and ensure permissions
+RUN mkdir -p /app/mytell/springboot_services/data && chown -R springboot:springboot /app/
+
+# Grant write permissions for the data directory
+RUN chmod -R 777 /app/mytell/springboot_services/data
+
+# Switch to the non-root user
+USER springboot
+
+# Copy the JAR file into the container
+COPY DepositService-0.0.1-SNAPSHOT.jar /app/DepositService-0.0.1-SNAPSHOT.jar
+
+# Expose the port the app runs on 8080
+EXPOSE 8080
+
+# Set environment variables for H2 database
+ENV SPRING_DATASOURCE_URL=jdbc:h2:file:/app/mytell/springboot_services/data/ANZDB;DB_CLOSE_ON_EXIT=FALSE
+
+# Set the entry point to run the app
+ENTRYPOINT ["java","-Dserver.port=8080","-jar", "/app/DepositService-0.0.1-SNAPSHOT.jar"]
